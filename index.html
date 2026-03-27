@@ -1,1 +1,249 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Emoji Memory Game</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .perspective { perspective: 1000px; }
+        .backface-hidden { backface-visibility: hidden; }
+        .rotate-y-180 { transform: rotateY(180deg); }
+        .transform-style-3d { transform-style: preserve-3d; }
+        
+        .card-inner {
+            transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        
+        .card.flipped .card-inner {
+            transform: rotateY(180deg);
+        }
 
+        .card.matched .card-inner {
+            animation: pulse-success 0.5s ease-in-out;
+        }
+
+        @keyframes pulse-success {
+            0%, 100% { transform: rotateY(180deg) scale(1); }
+            50% { transform: rotateY(180deg) scale(1.05); }
+        }
+    </style>
+</head>
+<body class="bg-slate-50 min-h-screen flex flex-col items-center justify-center p-4 font-sans text-slate-800">
+
+    <div class="max-w-md w-full">
+        <header class="text-center mb-8">
+            <h1 class="text-4xl font-extrabold text-indigo-600 mb-2 tracking-tight">Emoji Match</h1>
+            <p class="text-slate-500 font-medium">Encontre os pares de emojis!</p>
+        </header>
+
+        <div class="bg-white rounded-3xl shadow-xl p-6 mb-6">
+            <div class="flex justify-between items-center mb-6 px-2">
+                <div class="flex flex-col">
+                    <span class="text-xs uppercase tracking-widest text-slate-400 font-bold">Movimentos</span>
+                    <span id="moves" class="text-2xl font-mono font-bold text-indigo-600">0</span>
+                </div>
+                <div class="flex flex-col items-end">
+                    <span class="text-xs uppercase tracking-widest text-slate-400 font-bold">Tempo</span>
+                    <span id="timer" class="text-2xl font-mono font-bold text-indigo-600">00:00</span>
+                </div>
+            </div>
+
+            <div id="game-board" class="grid grid-cols-4 gap-3 md:gap-4 h-full aspect-square">
+                <!-- Cards serão gerados via JS -->
+            </div>
+        </div>
+
+        <div class="flex gap-4">
+            <button id="reset-btn" class="flex-1 bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white font-bold py-4 px-6 rounded-2xl transition-all shadow-lg shadow-indigo-200 flex items-center justify-center gap-2 focus:outline-none focus:ring-4 focus:ring-indigo-300">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                    <path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd" />
+                </svg>
+                Reiniciar Jogo
+            </button>
+        </div>
+    </div>
+
+    <!-- Win Modal -->
+    <div id="win-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm hidden items-center justify-center p-4 z-50">
+        <div class="bg-white rounded-3xl p-8 max-w-sm w-full text-center shadow-2xl transform scale-95 transition-transform duration-300">
+            <div class="w-20 h-20 bg-green-100 text-green-600 rounded-full flex items-center justify-center mx-auto mb-4">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                </svg>
+            </div>
+            <h2 class="text-2xl font-bold mb-2">Parabéns!</h2>
+            <p class="text-slate-500 mb-6">Você completou o desafio com sucesso.</p>
+            <div class="bg-slate-50 rounded-2xl p-4 mb-6 grid grid-cols-2 gap-4">
+                <div>
+                    <p class="text-xs text-slate-400 uppercase font-bold">Movimentos</p>
+                    <p id="final-moves" class="text-xl font-bold text-slate-700">0</p>
+                </div>
+                <div>
+                    <p class="text-xs text-slate-400 uppercase font-bold">Tempo</p>
+                    <p id="final-time" class="text-xl font-bold text-slate-700">00:00</p>
+                </div>
+            </div>
+            <button id="play-again-btn" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-4 rounded-xl transition-colors shadow-lg shadow-indigo-200">
+                Jogar Novamente
+            </button>
+        </div>
+    </div>
+
+    <script>
+        const emojis = ['🚀', '🍕', '🎉', '🎮', '🌈', '🍦', '💎', '🎨'];
+        let cards = [...emojis, ...emojis];
+        let flippedCards = [];
+        let matchedPairs = 0;
+        let moves = 0;
+        let timerSeconds = 0;
+        let timerInterval = null;
+        let isLockBoard = false;
+
+        const board = document.getElementById('game-board');
+        const movesDisplay = document.getElementById('moves');
+        const timerDisplay = document.getElementById('timer');
+        const resetBtn = document.getElementById('reset-btn');
+        const winModal = document.getElementById('win-modal');
+        const finalMoves = document.getElementById('final-moves');
+        const finalTime = document.getElementById('final-time');
+        const playAgainBtn = document.getElementById('play-again-btn');
+
+        function shuffle(array) {
+            for (let i = array.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [array[i], array[j]] = [array[j], array[i]];
+            }
+            return array;
+        }
+
+        function createCard(emoji, index) {
+            const card = document.createElement('div');
+            card.classList.add('card', 'perspective', 'cursor-pointer', 'h-full', 'w-full');
+            card.dataset.emoji = emoji;
+            card.dataset.index = index;
+            card.setAttribute('role', 'button');
+            card.setAttribute('aria-label', 'Carta oculta');
+            card.tabIndex = 0;
+
+            card.innerHTML = `
+                <div class="card-inner relative w-full h-full transform-style-3d shadow-md rounded-xl hover:shadow-lg transition-shadow">
+                    <div class="card-front absolute w-full h-full bg-indigo-500 rounded-xl flex items-center justify-center backface-hidden border-b-4 border-indigo-700">
+                        <div class="w-8 h-8 md:w-10 md:h-10 border-2 border-white/20 rounded-full"></div>
+                    </div>
+                    <div class="card-back absolute w-full h-full bg-white rounded-xl flex items-center justify-center backface-hidden rotate-y-180 border-2 border-slate-100 text-3xl md:text-4xl">
+                        ${emoji}
+                    </div>
+                </div>
+            `;
+
+            card.addEventListener('click', () => flipCard(card));
+            card.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter' || e.key === ' ') flipCard(card);
+            });
+
+            return card;
+        }
+
+        function startTimer() {
+            clearInterval(timerInterval);
+            timerSeconds = 0;
+            timerInterval = setInterval(() => {
+                timerSeconds++;
+                const mins = String(Math.floor(timerSeconds / 60)).padStart(2, '0');
+                const secs = String(timerSeconds % 60).padStart(2, '0');
+                timerDisplay.innerText = `${mins}:${secs}`;
+            }, 1000);
+        }
+
+        function flipCard(card) {
+            if (isLockBoard || card.classList.contains('flipped') || card.classList.contains('matched')) return;
+
+            if (moves === 0 && flippedCards.length === 0) startTimer();
+
+            card.classList.add('flipped');
+            flippedCards.push(card);
+
+            if (flippedCards.length === 2) {
+                isLockBoard = true;
+                updateMoves();
+                checkMatch();
+            }
+        }
+
+        function checkMatch() {
+            const [card1, card2] = flippedCards;
+            const isMatch = card1.dataset.emoji === card2.dataset.emoji;
+
+            if (isMatch) {
+                handleMatch(card1, card2);
+            } else {
+                handleUnmatch(card1, card2);
+            }
+        }
+
+        function handleMatch(card1, card2) {
+            card1.classList.add('matched');
+            card2.classList.add('matched');
+            matchedPairs++;
+            flippedCards = [];
+            isLockBoard = false;
+
+            if (matchedPairs === emojis.length) {
+                setTimeout(endGame, 500);
+            }
+        }
+
+        function handleUnmatch(card1, card2) {
+            setTimeout(() => {
+                card1.classList.remove('flipped');
+                card2.classList.remove('flipped');
+                flippedCards = [];
+                isLockBoard = false;
+            }, 1000);
+        }
+
+        function updateMoves() {
+            moves++;
+            movesDisplay.innerText = moves;
+        }
+
+        function endGame() {
+            clearInterval(timerInterval);
+            finalMoves.innerText = moves;
+            finalTime.innerText = timerDisplay.innerText;
+            winModal.classList.remove('hidden');
+            winModal.classList.add('flex');
+            setTimeout(() => winModal.children[0].classList.remove('scale-95'), 10);
+        }
+
+        function resetGame() {
+            board.innerHTML = '';
+            moves = 0;
+            matchedPairs = 0;
+            timerSeconds = 0;
+            movesDisplay.innerText = '0';
+            timerDisplay.innerText = '00:00';
+            clearInterval(timerInterval);
+            isLockBoard = false;
+            flippedCards = [];
+            winModal.classList.add('hidden');
+            winModal.classList.remove('flex');
+            winModal.children[0].classList.add('scale-95');
+            initGame();
+        }
+
+        function initGame() {
+            const shuffledCards = shuffle([...cards]);
+            shuffledCards.forEach((emoji, index) => {
+                board.appendChild(createCard(emoji, index));
+            });
+        }
+
+        resetBtn.addEventListener('click', resetGame);
+        playAgainBtn.addEventListener('click', resetGame);
+
+        window.onload = initGame;
+    </script>
+</body>
+</html>
